@@ -2,20 +2,48 @@
 
 class ExampleRenderingPdfGenerator
 {
+    private const DEFAULT_FONTSIZE = 10;
+
+    private string $searchPath;
+    private array $data;
+    private string $templateMain;
+
+    private int $pageWidth;
+    private int $pageHeight;
+
+    private int $elementStartLeft;
+    private int $elementStartHalf;
+    private int $elementEndRight;
+
+    private int $y;
+    private int $graphicsY;
+    private int $descriptionY;
+    private string $colorBlack;
+    private string $colorWhite;
+    private int $defaultFontsize;
+
+    private array $pageCount;
+    private int $currentPageNo;
+
+    private $pdf;
+    private int $fontRegular;
+    private int $fontBold;
+    private int $fontItalic;
+
     public function getPdfBuffer()
     {
         /* ---------------- Declaration of variables ---------------- */
         // Searchpaths for assets (images, fonts, usw.)
-        $searchpath = 'assets';
+        $this->searchPath = 'assets';
 
-        /* In order for the PDF data to be generated in the RAM an empty file name is passed as the first parameter
-         * to "$p->begin_document()"
+        /*
+         * In order for the PDF data to be generated in the RAM an empty file name is passed as the first parameter
+         * to "$this->pdf->begin_document()"
          */
         $outfile = '';
 
         // Asset Declaration
-        $arrInput = include 'testData.php';
-        $startTemplate = $arrInput['startTemplate'];
+        $this->data = include 'testData.php';
         $config = [
             'fonts' => [
                 'ExamplePdf' => [
@@ -26,51 +54,47 @@ class ExampleRenderingPdfGenerator
             ],
         ];
 
+        $this->templateMain = $this->data['templates']['templateMain'];
+
         /* ---------- Declaration of PDF options */
-        $pagewidth = 595;
-        $pageheight = 842;
+        $this->pageWidth = 595;
+        $this->pageHeight = 842;
 
         // Position where elements begin or end
-        $elementStartLeft = 40;
-        $elementStartHalf = $pagewidth / 2;
-        $elementEndRight = $pagewidth - $elementStartLeft;
+        $this->elementStartLeft = 40;
+        $this->elementStartHalf = $this->pageWidth / 2;
+        $this->elementEndRight = $this->pageWidth - $this->elementStartLeft;
 
         // Different height values
-        $graphicsY = 0;
-        $descriptionY = 0;
+        $this->graphicsY = 0;
+        $this->descriptionY = 0;
 
-        // Document and Page Variable for the template
-        $doc = 1;
-        $page = 1;
+        // Colors
+        $this->colorBlack = '{rgb 0 0 0}';
+        $this->colorWhite = '{rgb 1 1 1}';
 
         // Fonts
         $fontExamplePdfRegular = 0;
         $fontExamplePdfBold = 0;
         $fontExamplePdfItalic = 0;
 
+        $this->defaultFontsize = self::DEFAULT_FONTSIZE;
+
         // Start Coordinate for the pdf
-        $y = 755;
+        $this->y = 755;
 
         // Array for page count
-        $pageCount = array(
-            '1',
-        );
-
-        // Maximum page number
-        $paginationMax = 0;
-
-        // Current page number
-        $paginationCurrent = 0;
+        $this->pageCount = array('1');
 
         /* ---------------- Generate the PDF-File ---------------- */
         // Generate the \PDFlib Object
-        $p = new \PDFlib();
+        $this->pdf = new \PDFlib();
 
         // Set PDF options
-        $this->setOptions($p, $searchpath);
+        $this->setOptions();
 
         // Set PDF Meta Data
-        $this->setMetaData($p, $arrInput);
+        $this->setMetaData();
 
         /*
          * Embed fonts
@@ -82,16 +106,21 @@ class ExampleRenderingPdfGenerator
                 ${
                     'font' . ucfirst($fontName) .
                     ucfirst($fontStyle)
-                } = $p->load_font($fontPath, 'unicode', 'embedding');
+                } = $this->pdf->load_font($fontPath, 'unicode', 'embedding');
             }
         }
 
+        // set global font variables
+        $this->fontRegular = $fontExamplePdfRegular;
+        $this->fontBold = $fontExamplePdfBold;
+        $this->fontItalic = $fontExamplePdfItalic;
+
         // Filename: If empty, the PDF is created in the working memory and must be fetched with get_buffer.
-        if ($p->begin_document($outfile, '') == 0) {
-            throw new Exception('Error: ' . $p->get_errmsg());
+        if ($this->pdf->begin_document($outfile, '') == 0) {
+            throw new Exception('Error: ' . $this->pdf->get_errmsg());
         }
 
-        /* ----- Start generating the pdf document ---- */
+        #### Start generating the pdf document ####
         /*
          * Add new page to the document and specify various options.
          *
@@ -100,66 +129,21 @@ class ExampleRenderingPdfGenerator
          *
          * This function starts the page scope and must be closed with a call of end_page_ext().
          */
-        $p->begin_page_ext($pagewidth, $pageheight, '');
+        $this->pdf->begin_page_ext($this->pageWidth, $this->pageHeight, '');
+        $this->currentPageNo = 1;
 
+        $this->loadGraphics();
+        $this->createTextParagraph();
+        $this->createTable();
+        $this->loadImages();
 
-        $this->loadGraphics($p, $elementEndRight, $y, $graphicsY, $arrInput);
+        $this->generateNewPage();
 
-        $this->createTextParagraph(
-            $p,
-            $elementStartLeft,
-            $elementEndRight,
-            $y, $descriptionY,
-            $fontExamplePdfRegular,
-            $fontExamplePdfBold,
-            $pagewidth,
-            $pageheight,
-            $arrInput,
-            $pageCount
-        );
-
-        $this->createTable(
-            $p,
-            $y,
-            $elementStartLeft,
-            $elementEndRight,
-            $fontExamplePdfRegular,
-            $fontExamplePdfBold,
-            $arrInput,
-            $graphicsY,
-            $descriptionY,
-            $pageCount,
-            $pagewidth,
-            $pageheight
-        );
-
-        $this->loadImages(
-            $p,
-            $elementStartLeft,
-            $elementEndRight,
-            $fontExamplePdfBold,
-            $y,
-            $arrInput,
-            $pageheight,
-            $pagewidth,
-            $pageCount
-        );
+        $this->loadImages();
+        $this->createTextParagraph();
 
         ##### Place Pagination on all pages #####
-        $this->generatePagination(
-            $p,
-            $pageCount,
-            $paginationMax,
-            $paginationCurrent,
-            $elementStartLeft,
-            $elementEndRight,
-            $fontExamplePdfBold,
-            $fontExamplePdfItalic,
-            $startTemplate,
-            $pagewidth,
-            $pageheight,
-            $arrInput
-        );
+        $this->generatePagination();
 
         /*
          * Closes the generated pdf document and applies various options
@@ -171,7 +155,7 @@ class ExampleRenderingPdfGenerator
          *
          * This function must always be called in combination with begin_document() or begin_document_callback()
          */
-        $p->end_document('');
+        $this->pdf->end_document('');
 
         /*
          * Get the content from the PDF output buffer.
@@ -180,22 +164,15 @@ class ExampleRenderingPdfGenerator
          *
          * The return value must be used by the client before another PDFlib function can be called.
          */
-        return $p->get_buffer();
+        return $this->pdf->get_buffer();
     }
 
     /* ---------------- PDFlib Functions ---------------- */
     /* ---------- Function to set the PDF options, the meta data and the template */
-    /**
-     * Set the pdf options
-     *
-     * @param \PDFlib $p            PDFLib object
-     * @param string $searchpath    Path in which PDFlib searches for assets
-     * @return void
-     */
-    private function setOptions(\PDFlib $p, string $searchpath)
+    private function setOptions()
     {
         // Set path in which PDFlib should search for asset files
-        $p->set_option('searchpath={' . $searchpath . '}');
+        $this->pdf->set_option('searchpath={' . $this->searchPath . '}');
 
         /*
          * Controls Error Handeling
@@ -203,35 +180,20 @@ class ExampleRenderingPdfGenerator
          * exception = Document can not be used in case of an error
          * return = Returns error code 0 and makes internal troubleshooting possible
          */
-        $p->set_option('errorpolicy=return');
+        $this->pdf->set_option('errorpolicy=return');
 
         // Makes the application Unicode compatible
-        $p->set_option('stringformat=utf8');
+        $this->pdf->set_option('stringformat=utf8');
     }
 
-    /**
-     * Set meta data of the document
-     *
-     * @param \PDFlib $p    PDFLib object
-     * @param array $arr    Array with the data (demodata)
-     * @return void
-     */
-    private function setMetaData(\PDFlib $p, array $arr)
+    private function setMetaData()
     {
-        $p->set_info('Subject', $arr['documentInfo'][0]);
-        $p->set_info('Title', $arr['documentInfo'][1]);
-        $p->set_info('Creator', $arr['documentInfo'][2]);
+        $this->pdf->set_info('Subject', $this->data['documentInfo'][0]);
+        $this->pdf->set_info('Title', $this->data['documentInfo'][1]);
+        $this->pdf->set_info('Creator', $this->data['documentInfo'][2]);
     }
 
-    /**
-     * Create a template and place it under the page
-     *
-     * @param \PDFlib $p        PDFLib object
-     * @param string $filename  Filename of the template
-     * @param int $pageNumber   Which page should be imported
-     * @return void
-     */
-    private function createTemplateOnPage(\PDFlib $p, string $filename, int $pageNumber)
+    private function createTemplateOnPage(string $filename, int $pageNumber)
     {
         /*
          * Opens a PDF and prepares it for usage.
@@ -240,9 +202,9 @@ class ExampleRenderingPdfGenerator
          *
          * return: PDI document handle
          */
-        $doc = $p->open_pdi_document($filename, '');
+        $doc = $this->pdf->open_pdi_document($filename, '');
         if ($doc == 0) {
-            throw new Exception('Error: ' . $p->get_errmsg());
+            throw new Exception('Error: ' . $this->pdf->get_errmsg());
         }
 
         /*
@@ -251,9 +213,9 @@ class ExampleRenderingPdfGenerator
          * return: PDI page handle
          * The handle can only be used until the end of the closing document scope
          */
-        $page = $p->open_pdi_page($doc, $pageNumber, '');
+        $page = $this->pdf->open_pdi_page($doc, $pageNumber, '');
         if ($page == 0) {
-            throw new Exception('Error: ' . $p->get_errmsg());
+            throw new Exception('Error: ' . $this->pdf->get_errmsg());
         }
 
         /*
@@ -261,81 +223,79 @@ class ExampleRenderingPdfGenerator
          *
          * This function is similar to fit_image but works with an imported PDF.
          */
-        $p->fit_pdi_page($page, 0, 0, 'adjustpage');
+        $this->pdf->fit_pdi_page($page, 0, 0, 'adjustpage');
 
         // Closes the page handle and releases the resources.
-        $p->close_pdi_page($page);
+        $this->pdf->close_pdi_page($page);
     }
 
-    /* ---------- Functions to generate a new page and create functions to easy implement content */
-    private function generateNewPage(
-        \PDFlib $p,
-        int $pagewidth,
-        int $pageheight,
-        int &$y,
-        array &$pageCount
-    ) {
+    private function createHeaderTemplate()
+    {
+        ## Start page template ##
+        $pageTemplate = $this->pdf->begin_template_ext($this->pageWidth, $this->pageHeight, '');
+
+        // Place Heading and Subtitle on the page
+        $this->createPdfHeadline();
+
+        ## Finish the template ##
+        $this->pdf->end_template_ext(0, 0);
+
+        ## Place the template on the page, just like using an image ##
+        $this->pdf->fit_image($pageTemplate, 0.0, 0.0, '');
+    }
+
+    private function generateNewPage()
+    {
         // Suspend current page
-        $p->suspend_page('');
-        $p->begin_page_ext($pagewidth, $pageheight, '');
+        $this->pdf->suspend_page('');
+        $this->pdf->begin_page_ext($this->pageWidth, $this->pageHeight, '');
+        ++$this->currentPageNo;
 
         // Set height to default startpoint
-        $y = 755;
+        $this->y = 810;
 
         // Push new page to array
-        array_push($pageCount, 'NewPage');
+        array_push($this->pageCount, 'pdfWeberTechnicalSheet Create NewPage');
     }
 
-    private function generatePagination(
-        pdflib $p,
-        array $pageCount,
-        int $paginationMax,
-        int $paginationCurrent,
-        int $elementStartLeft,
-        int $elementEndRight,
-        int $fontExamplePdfBold,
-        int $fontExamplePdfItalic,
-        string $startTemplate,
-        int $pagewidth,
-        int $pageheight,
-        array $arrInput
-    ) {
+    private function generatePagination()
+    {
         ## Optlist for pagination styling ##
-        $optlistPagination = 'font=' . $fontExamplePdfItalic . ' fontsize=8 fillcolor=black wordspacing=0.5';
+        $optlistPagination = 'font=' . $this->fontItalic .
+            ' fontsize=8' .
+            ' fillcolor=black' .    // font color
+            ' wordspacing=0.5';
 
         ## Variable declaration of page count ##
         // Maximum page count
-        $paginationMax = count($pageCount);
-
-        // Get the current page number, here it equals 1 because default is 0
-        $paginationCurrent++;
+        $paginationMax = count($this->pageCount);
+        $paginationCurrent = 1;
 
         ## Place Pagination on all pages ##
         // Suspend current page
-        $p->suspend_page('');
+        $this->pdf->suspend_page('');
 
         // resume page number 1
-        $p->resume_page('pagenumber ' . $paginationCurrent);
+        $this->pdf->resume_page('pagenumber ' . $paginationCurrent);
 
-        $this->createTemplateOnPage($p, $startTemplate, 1);
+        $this->createTemplateOnPage($this->templateMain, $paginationCurrent);
 
         // Place header template on new page
-        $this->generateHeaderTemplate(
-            $p,
-            $fontExamplePdfBold,
-            $elementStartLeft,
-            $elementEndRight,
-            $pagewidth,
-            $pageheight,
-            $arrInput
-        );
+        $this->createHeaderTemplate();
 
         // Place Pagination on Page 1
-        $p->fit_textline(
-            'Page: ' . $paginationCurrent . '/' . $paginationMax, $elementEndRight - 30, 55, $optlistPagination
+        $this->pdf->fit_textline(
+            'Seite: ' . $paginationCurrent . '/' . $paginationMax, $this->elementEndRight - 30, 55, $optlistPagination
         );
 
-        $p->end_page_ext('');
+        /*
+         * Complete a page and apply relevant options
+         *
+         * The options in this function override those in begin_page_ext ()
+         *
+         * This function exits the page scope and must be opened againg with start_page_ext()
+         */
+        $this->pdf->end_page_ext('');
 
         /* If maximum page count is higher than 1 iterate through every page after the first one
          * as long as $i is less then the maximum page count
@@ -345,202 +305,158 @@ class ExampleRenderingPdfGenerator
                 $paginationCurrent++; // get the current page number
 
                 ## Resume the page ##
-                $p->resume_page('pagenumber ' . $paginationCurrent);
+                $this->pdf->resume_page('pagenumber ' . $paginationCurrent);
 
-                $this->createTemplateOnPage($p, $startTemplate, 1);
+                $this->createTemplateOnPage($this->templateMain, 1);
 
                 // Place header template on new page
-                $this->generateHeaderTemplate(
-                    $p,
-                    $fontExamplePdfBold,
-                    $elementStartLeft,
-                    $elementEndRight,
-                    $pagewidth,
-                    $pageheight,
-                    $arrInput
-                );
+                $this->createHeaderTemplate();
 
                 // Place Pagination on the Page
-                $p->fit_textline(
-                    'Page: ' . $paginationCurrent . '/' . $paginationMax, $elementEndRight - 30, 55, $optlistPagination
+                $this->pdf->fit_textline(
+                    'Seite: ' . $paginationCurrent . '/' . $paginationMax, $this->elementEndRight - 30, 55,
+                    $optlistPagination
                 );
 
-                $p->end_page_ext('');
+                /*
+                * Complete a page and apply relevant options
+                *
+                * The options in this function override those in begin_page_ext ()
+                *
+                * This function exits the page scope and must be opened againg with start_page_ext()
+                */
+                $this->pdf->end_page_ext('');
             }
         }
     }
 
-    private function placePartingLine(\PDFlib $p, int $elementStartLeft, int $elementEndRight, int &$y)
+    /* ---------------- Content Functions ---------------- */
+    private function replaceHtml(?string $string, int $normalFontsize = self::DEFAULT_FONTSIZE)
     {
-        // Get height value
-        $y = $y - 5;
+        if (!empty($string)) {
+            $this->replaceHtmlLists($string);
 
-        // Define width of the parting line
-        $p->setlinewidth(1);
+            $string = $this->removeHtmlTagAttributes($string);
 
-        // Define stroke color
-        $p->setcolor('stroke', 'rgb', 0.0, 0.0, 0.0, 0.0);
+            $searchForMain = [
+                1 => '</p><p>',
+                2 => '<p> </p>',
+                3 => '<p>',
+                4 => '<strong>',
+                5 => '</strong>',
+                6 => '<sup>',
+                7 => '</sup>',
+                8 => '<sub>',
+                9 => '</sub>',
+                10 => '<i>',
+                11 => '</i>',
+                12 => '<em>',
+                13 => '</em>',
+                14 => '<br/>',
+                15 => '<br>',
+                16 => '<u>',
+                17 => '</u>',
+                18 => '<s>',
+                19 => '</s>',
+                20 => '</p><ul>',
+                21 => '</p><ol>',
+                22 => '<ol>',
+                23 => '</ol>',
+                24 => '<ul>',
+                25 => '</ul>',
+                26 => '<span>',
+                27 => '</span>',
+                28 => '<br />',
+                29 => "\t",
+                30 => "\r\n",
+                31 => "\r",
+                32 => '</p>',
+                33 => '<li>',
+                34 => '</li>',
+                35 => '</div><div>',
+                36 => '<div> </div>',
+                37 => '<div>',
+                38 => '</div>',
+                39 => '<table>',
+                40 => '</table>',
+                41 => '<tbody>',
+                42 => '</tbody>',
+                43 => '<tr>',
+                44 => '</tr>',
+                45 => '<td>',
+                46 => '</td>',
+            ];
 
-        // Define fill color
-        $p->setcolor('fill', 'rgb', 0.0, 0.0, 0.0, 0.0);
+            $replaceWithMain = [
+                1 => "\n",
+                2 => "\n",
+                3 => '',
+                4 => '<font=' . $this->fontBold . '>',
+                5 => '<font=' . $this->fontRegular . '>',
+                6 => '<textrise=60% fontsize=6>',
+                7 => '<textrise=0 fontsize=' . $normalFontsize . '>',
+                8 => '<textrise=-60% fontsize=6>',
+                9 => '<textrise=0 fontsize=9>',
+                10 => '<italicangle=-12>',
+                11 => '<italicangle=0>',
+                12 => '<italicangle=-12>',
+                13 => '<italicangle=0>',
+                14 => "\n",
+                15 => "\n",
+                16 => '<underline=true underlinewidth=7% underlineposition=-20%>',
+                17 => '<underline=false>',
+                18 => '<strikeout=true>',
+                19 => '<strikeout=false>',
+                20 => "\n",
+                21 => "\n",
+                22 => '',
+                23 => '<leftindent=0>',
+                24 => '',
+                25 => '<leftindent=0>',
+                26 => '',
+                27 => '',
+                28 => "\n",
+                29 => '',
+                30 => '',
+                31 => '',
+                32 => '',
+                33 => '',
+                34 => '',
+                35 => "\n",
+                36 => "\n",
+                37 => '',
+                38 => "\n",
+                39 => '',
+                40 => "\n",
+                41 => '',
+                42 => "\n",
+                43 => '',
+                44 => "\n",
+                45 => '',
+                46 => "\n",
+            ];
 
-        // Set starting point of parting line
-        $p->moveto($elementStartLeft, $y);
-
-        // Draw parting line from starting point to end point
-        $p->lineto($elementEndRight, $y);
-
-        $p->stroke();
-
-        // Get new height value
-        return $y = $y - 5;
-    }
-
-    private function createHeading(
-        \PDFlib $p,
-        int &$y,
-        int $elementStartLeft,
-        int $elementEndRight,
-        int $fontBold,
-        array $arrInput,
-        string $heading
-    ) {
-        ## Variable Declaration ##
-        $leftX = $elementStartLeft;
-        $leftY = $y - 20;
-        $rightX = $elementEndRight;
-        $rightY = $y;
-
-        ## Add textflow ##
-        $optlistHeading = 'font=' . $fontBold . ' fontsize=12 fillcolor=black wordspacing=0.5 leading=13';
-
-        // create textflow
-        $headingTf = $p->add_textflow(0, $heading, $optlistHeading);
-        if ($headingTf == 0) {
-            throw new Exception('Error: ' . $p->get_errmsg());
-        }
-
-        // Output textflow on page
-        $resultHeading = $p->fit_textflow(
-            $headingTf,
-            $leftX,
-            $leftY,
-            $rightX,
-            $rightY,
-            ''
-        );
-
-        // If the text doesn't fit into the fitbox throw an exception
-        if ($resultHeading == '_boxfull') {
-            throw new Exception('Text of imageHeading does not fit into the fitbox');
-        }
-
-        ##### Place Parting Line #####
-        $y = $y - 15;
-        $this->placePartingLine($p, $elementStartLeft, $elementEndRight, $y);
-
-        return $y = $y - 5;
-    }
-
-    /* ---------- Functions to make HTML-Tags useable with PDFlib */
-    private function replaceHtml(?string $string, int $fontRegular, int $fontBold, string $normalFontsize)
-    {
-
-        $this->replaceHtmlLists($string, $fontRegular);
-
-        $pCounter = substr_count($string, '<p>');
-
-        if ($pCounter > 1) {
-            $array = explode('<p>', $string);
-            if (!empty($array)) {
-                array_shift($array);
-                $string = implode($array);
-
-                // check for html tags and replace them
-                $searchForP = [
-                    1 => '</p>',
-                ];
-
-                $replaceWithBr = [
-                    1 => '<br/>',
-                ];
-
-                $string = str_replace($searchForP, $replaceWithBr, $string);
+            // Go over every item in the list so the corresponding tag is also replaced when it's written in caps only
+            foreach ($searchForMain as $key => $searchValue) {
+                $string = str_replace(strtoupper($searchValue), $replaceWithMain[$key], $string);
             }
+
+            // replace all normal occurences of the html tags in the list
+            $string = str_replace($searchForMain, $replaceWithMain, $string);
         }
 
-        $searchForMain = [
-            1 => '<p> </p>',
-            2 => '<p>',
-            3 => '<strong>',
-            4 => '</strong>',
-            5 => '<sup>',
-            6 => '</sup>',
-            7 => '<sub>',
-            8 => '</sub>',
-            9 => '<i>',
-            10 => '</i>',
-            11 => '<em>',
-            12 => '</em>',
-            13 => '<br/>',
-            14 => '<br>',
-            15 => '<u>',
-            16 => '</u>',
-            17 => '<s>',
-            18 => '</s>',
-            19 => '<ol>',
-            20 => '</ol>',
-            21 => '<ul>',
-            22 => '</ul>',
-            23 => '<span>',
-            24 => '</span>',
-            25 => '<br />',
-            26 => "\t",
-            27 => "\r\n",
-            28 => "\r",
-            29 => '</p>',
-            30 => '<b>',
-            31 => '</b>',
-        ];
-
-        $replaceWithMain = [
-            1 => "\n",
-            2 => '',
-            3 => '<font=' . $fontBold . '>',
-            4 => '<font=' . $fontRegular . '>',
-            5 => '<textrise=60% fontsize=6>',
-            6 => '<textrise=0 fontsize=' . $normalFontsize . '>',
-            7 => '<textrise=-60% fontsize=6>',
-            8 => '<textrise=0 fontsize=9>',
-            9 => '<italicangle=-12>',
-            10 => '<italicangle=0>',
-            11 => '<italicangle=-12>',
-            12 => '<italicangle=0>',
-            13 => "\n",
-            14 => "\n",
-            15 => '<underline=true underlinewidth=7% underlineposition=-20%>',
-            16 => '<underline=false>',
-            17 => '<strikeout=true>',
-            18 => '<strikeout=false>',
-            19 => '',
-            20 => '<leftindent=0>',
-            21 => '',
-            22 => '<leftindent=0>',
-            23 => '',
-            24 => '',
-            25 => "\n",
-            26 => '',
-            27 => '',
-            28 => '',
-            29 => '',
-            30 => '<font=' . $fontBold . '>',
-            31 => '<font=' . $fontRegular . '>',
-        ];
-
-        return str_replace($searchForMain, $replaceWithMain, $string);
+        return $string;
     }
 
-    private function replaceHtmlLists(string &$string, int $font)
+    private function removeHtmlTagAttributes(?string $string)
+    {
+        if (!empty($string)) {
+            // remove any inline styles from html tags
+            return preg_replace('/<([a-z][a-z0-9]*)[^>]*?(\/?)>/si', '<$1$2>', $string);
+        }
+    }
+
+    private function replaceHtmlLists(?string $string)
     {
         while (strpos($string, '<ol>') !== false || strpos($string, '<ul>') !== false) {
             $explodeArray = explode('<ol>', $string);
@@ -559,8 +475,7 @@ class ExampleRenderingPdfGenerator
                     ];
 
                     $replaceWithUnorderedOptlists = [
-                        1 => '<leftindent=0 fontname=Symbol encoding=unicode>&#x2022;<leftindent=10 font='
-                            . $font . '>',
+                        1 => '<leftindent=0>&bull;<leftindent=10> ',
                         2 => "\n",
                     ];
 
@@ -583,7 +498,7 @@ class ExampleRenderingPdfGenerator
                                 array_shift($explodeOrderedEls);
                             }
 
-                            foreach ($explodeOrderedEls as &$OrderedEl) {
+                            foreach ($explodeOrderedEls as &$orderedEl) {
                                 ++$orderedNumber;
 
                                 $searchForOrderedListItems = [
@@ -596,10 +511,10 @@ class ExampleRenderingPdfGenerator
                                     2 => "\n",
                                 ];
 
-                                $OrderedEl = str_replace(
+                                $orderedEl = str_replace(
                                     $searchForOrderedListItems,
                                     $replaceWithOrderedOptlists,
-                                    $OrderedEl
+                                    $orderedEl
                                 );
                             }
 
@@ -611,8 +526,7 @@ class ExampleRenderingPdfGenerator
                             ];
 
                             $replaceWithUnorderedOptlists = [
-                                1 => '<leftindent=0 fontname=Symbol encoding=unicode>&#x2022;<leftindent=10 font='
-                                    . $font . '>',
+                                1 => '<leftindent=0>&bull;<leftindent=10> ',
                                 2 => "\n",
                             ];
 
@@ -634,7 +548,7 @@ class ExampleRenderingPdfGenerator
                         array_shift($explodeOrderedEls);
                     }
 
-                    foreach ($explodeOrderedEls as &$OrderedEl) {
+                    foreach ($explodeOrderedEls as &$orderedEl) {
                         ++$orderedNumber;
 
                         $searchForOrderedListItems = [
@@ -647,45 +561,68 @@ class ExampleRenderingPdfGenerator
                             2 => "\n",
                         ];
 
-                        $OrderedEl = str_replace(
+                        $orderedEl = str_replace(
                             $searchForOrderedListItems,
                             $replaceWithOrderedOptlists,
-                            $OrderedEl
+                            $orderedEl
                         );
                     }
 
                     $listArrayItem = implode($explodeOrderedEls);
                 }
             }
-            return $string = implode($explodeArray);
+            $string = implode($explodeArray);
+
+            return $string;
         }
     }
 
-    /* ---------- Create Page Heading and generate a header template with them */
-    private function createDocumentHeadline(
-        \PDFlib $p,
-        int $fontExamplePdfBold,
-        int $elementStartLeft,
-        int $elementEndRight,
-        array $arrInput
-    ) {
-        $leftX = $elementStartLeft;
+    private function placePartingLine()
+    {
+        // Get height value
+        $this->y = $this->y - 5;
+
+        // Define width of the parting line
+        $this->pdf->setlinewidth(1);
+
+        // Define stroke color
+        $this->pdf->setcolor('stroke', 'rgb', 0.0, 0.0, 0.0, 0.0);
+
+        // Define fill color
+        $this->pdf->setcolor('fill', 'rgb', 0.0, 0.0, 0.0, 0.0);
+
+        // Set starting point of parting line
+        $this->pdf->moveto($this->elementStartLeft, $this->y);
+
+        // Draw parting line from starting point to end point
+        $this->pdf->lineto($this->elementEndRight, $this->y);
+
+        $this->pdf->stroke();
+
+        // Get new height value
+        $this->y = $this->y - 5;
+    }
+
+    /* ---------- Generate Page Headline and create a header template with them */
+    private function createPdfHeadline()
+    {
+        $leftX = $this->elementStartLeft;
         $leftY = 815;
-        $rightX = $elementEndRight;
+        $rightX = $this->elementEndRight;
         $rightY = $leftY - 20;
 
         // Define text input
-        $headline = $arrInput['headline'];
+        $headline = $this->data['headline'];
 
-        $optlistHeadline = 'font=' . $fontExamplePdfBold . ' fontsize=16 fillcolor=white wordspacing=0';
+        $optlistHeadline = 'font=' . $this->fontBold . ' fontsize=16 fillcolor=white wordspacing=0';
 
-        $tf = $p->add_textflow(0, $headline, $optlistHeadline);
+        $tf = $this->pdf->add_textflow(0, $headline, $optlistHeadline);
         if ($tf == 0) {
-            throw new Exception('Error: ' . $p->get_errmsg());
+            throw new Exception('Error: ' . $this->pdf->get_errmsg());
         }
 
         // Output textflow on page
-        $result = $p->fit_textflow($tf, $leftX, $leftY, $rightX, $rightY, '');
+        $result = $this->pdf->fit_textflow($tf, $leftX, $leftY, $rightX, $rightY, '');
 
         // If the text doesn't fit into the fitbox throw an exception
         if ($result == '_boxfull') {
@@ -693,46 +630,13 @@ class ExampleRenderingPdfGenerator
         }
     }
 
-    private function generateHeaderTemplate(
-        \PDFlib $p,
-        int $fontExamplePdfBold,
-        int $elementStartLeft,
-        int $elementEndRight,
-        int $pagewidth,
-        int $pageheight,
-        array $arrInput
-    ) {
-        ## Start page template ##
-        $pageTemplate = $p->begin_template_ext($pagewidth, $pageheight, '');
-
-        // Place Heading and Subtitle on the page
-        $this->createDocumentHeadline($p, $fontExamplePdfBold, $elementStartLeft, $elementEndRight, $arrInput);
-
-        ## Finish the template ##
-        $p->end_template_ext(0, 0);
-
-        ## Place the template on the page, just like using an image ##
-        $p->fit_image($pageTemplate, 0.0, 0.0, '');
-    }
-
-    /* ---------- Functions to place the content */
-    private function loadGraphics(
-        \PDFlib $p,
-        int $elementEndRight,
-        int $y,
-        int &$graphicsY,
-        array $arrInput
-    ) {
-        $svgImages = $arrInput['graphics'];
-        $graphicCounter = count($svgImages);
-
-        if ($graphicCounter > 12) {
-            throw new Exception('Error: More than 12 images');
-        }
+    private function loadGraphics()
+    {
+        $svgImages = $this->data['graphics'];
 
         // start coordinates of the images
-        $imageY = $y - 50;
-        $imageX = $elementEndRight - 45;
+        $imageY = $this->y - 50;
+        $imageX = $this->elementEndRight - 45;
 
         // image box delcaration
         $boxwidth = 45;
@@ -741,137 +645,103 @@ class ExampleRenderingPdfGenerator
         // loop until all images are placed
         foreach ($svgImages as $svg) {
             // load svg graphic
-            $graphics = $p->load_graphics('auto', $svg, '');
+            $graphics = $this->pdf->load_graphics('auto', $svg, '');
             if ($graphics == 0) {
-                throw new Exception('Couldn not load logo image: ' . $p->get_errmsg());
+                echo('Couldn not load logo image: ' . $this->pdf->get_errmsg());
+                exit(1);
             }
 
             // place the image
             $buf = 'boxsize={ ' . $boxwidth . ' ' . $boxheight . '} position={center} fitmethod=meet';
-            $p->fit_graphics($graphics, $imageX, $imageY, $buf);
+            $this->pdf->fit_graphics($graphics, $imageX, $imageY, $buf);
 
             $imageY = $imageY - 55;
         }
 
-        $graphicsY = $imageY + 55;
+        $this->graphicsY = $imageY + 55;
     }
 
-    private function createTextParagraph(
-       \PDFlib $p,
-       int $elementStartLeft,
-       int $elementEndRight,
-       int $y,
-       int &$descriptionY,
-       int $fontRegular,
-       int $fontBold,
-       int $pagewidth,
-       int $pageheight,
-       array $arrInput,
-       array &$pageCount
-    ) {
+    private function createTextParagraph()
+    {
         ##### Variable Declaration #####
-        $paragraph = $arrInput['paragraph'];
+        $text = $this->data['paragraph'];
 
-        $leftX = $elementStartLeft;
-        $leftY = 100;
-        $rightX = $elementEndRight - 100;
-        $rightY = $y;
+        $left_x = $this->elementStartLeft;
+        $left_y = $this->y;
+        $right_x = $this->elementEndRight - 100;
+        $right_y = 400;
 
         #### Add textflow ####
-        $optlist = 'font=' . $fontRegular . ' fontsize=10 fillcolor=black wordspacing=0.5 leading=13';
+        $optlist = 'font=' . $this->fontRegular . ' fontsize=' . $this->defaultFontsize
+            . ' fillcolor=black wordspacing=0.5 leading=13';
 
-        $normalFontsize = '10';
-        $paragraph = $this->replaceHtml(
-            $paragraph,
-            $fontRegular,
-            $fontBold,
-            $normalFontsize
-        );
+        $text = $this->replaceHtml($text);
 
-        $tf = $p->create_textflow($paragraph, $optlist);
+        $tf = $this->pdf->create_textflow($text, $optlist);
         if ($tf == 0) {
-            throw new Exception('Error: ' . $p->get_errmsg());
+            throw new Exception('Error: ' . $this->pdf->get_errmsg());
         }
 
         // Output textflow on page
-        $resultParagraph = $p->fit_textflow($tf, $leftX, $leftY, $rightX, $rightY, '');
+        $result = $this->pdf->fit_textflow($tf, $left_x, $left_y, $right_x, $right_y, '');
 
         // If the text doesn't fit into the fitbox throw an exception
-        while ($resultParagraph != '_stop') {
-            $this->generateNewPage(
-                $p,
-                $pagewidth,
-                $pageheight,
-                $y,
-                $pageCount,
-            );
-
-            // New height Coordinates for the first page
-            $leftY = 100;
-            $rightY = 755;
-
-            // Output textflow on new page
-            $resultParagraph = $p->fit_textflow($tf, $leftX, $leftY, $rightX, $rightY, '');
+        if ($result == '_boxfull') {
+            throw new Exception('Text of Paragraph does not fit into the fitbox');
         }
 
         // Get height of the fitbox
-        $infoHeight = $p->info_textflow($tf, 'y2');
+        $infoHeight = $this->pdf->info_textflow($tf, 'y2');
 
-        $descriptionY = $infoHeight;
+        $this->descriptionY = $infoHeight;
     }
 
-    private function createTable(
-        \PDFlib $p,
-        int &$y,
-        int $elementStartLeft,
-        int $elementEndRight,
-        int $fontRegular,
-        int $fontBold,
-        array $arrInput,
-        int $graphicsY,
-        int $descriptionY,
-        array &$pageCount,
-        int $pagewidth,
-        int $pageheight
-    ) {
-        $tableHeading = $arrInput['table']['tableHeading'];
-        $tableContent = $arrInput['table']['tableContent'];
+    private function createHeading(string $string, int $paddingBottom = 20, bool $renderPartinLine = true)
+    {
+        if (!empty($string)) {
+            $left_x = $this->elementStartLeft;
+            $left_y = $this->y;
+            $right_x = $this->elementEndRight;
+            $right_y = $this->y - 20;
 
-        // count all images
-        $svgImages = $arrInput['graphics'];
-        $graphicCounter = count($svgImages);
+            ## Add textflow ##
+            $optlistHeading = 'font=' . $this->fontBold . ' fontsize=12 fillcolor=black wordspacing=0.5 leading=13';
 
-        ## get new height value for element ##
-        $pageCounter = count($pageCount);
-        if ($pageCounter > 1) {
-            $y = $descriptionY - 20;
-        } else {
-            if ($descriptionY < $graphicsY) {
-                $y = $descriptionY - 20;
-            } else {
-                $y = $graphicsY - 20;
+            // create textflow
+            $headingTf = $this->pdf->add_textflow(0, $string, $optlistHeading);
+            if ($headingTf == 0) {
+                throw new Exception('Error: ' . $this->pdf->get_errmsg());
             }
+
+            // Output textflow on page
+            $resultHeading = $this->pdf->fit_textflow($headingTf, $left_x, $left_y, $right_x, $right_y, '');
+
+            // If the text doesn't fit into the fitbox throw an exception
+            if ($resultHeading == '_boxfull') {
+                throw new Exception('The Heading "' . $string . '" does not fit into the fitbox');
+            }
+
+            if ($renderPartinLine) {
+                ##### Place Parting Line #####
+                $this->y = $this->y - 15;
+                $this->placePartingLine();
+            }
+
+            $this->y = $this->y - $paddingBottom;
+        }
+    }
+
+    private function createTable()
+    {
+        ## get new height value for following elements ##
+        if ($this->descriptionY < $this->graphicsY) {
+            $this->y = $this->descriptionY - 20;
+        } else {
+            $this->y = $this->graphicsY - 20;
         }
 
-        if ($y < 120 || $graphicCounter > 10) {
-            $this->generateNewPage(
-                $p,
-                $pagewidth,
-                $pageheight,
-                $y,
-                $pageCount,
-            );
-        }
-
-        $this->createHeading(
-            $p,
-            $y,
-            $elementStartLeft,
-            $elementEndRight,
-            $fontBold,
-            $arrInput,
-            $tableHeading
-        );
+        $tableHeading = $this->data['table']['tableHeading'];
+        $this->createHeading($tableHeading, 20, false);
 
         ### Variable Declaration ###
         $tbl = 0;
@@ -880,64 +750,51 @@ class ExampleRenderingPdfGenerator
         $col2 = 2;
 
         // Coordinates for productProfile Table
-        $leftX = $elementStartLeft;
-        $leftY = 100;
-        $rightX = $elementEndRight;
-        $rightY = $y;
+        $left_x = $this->elementStartLeft;
+        $left_y = $this->y;
+        $right_x = $this->elementEndRight;
+        $right_y = 310;
 
-        // Define option lists
-        $optlistTableTf = 'font=' . $fontRegular . ' fontsize=10 fillcolor=black wordspacing=0 leading=13';
+        // Define list item variables
+        $tableContent = $this->data['table']['tableContent'];
+
+        $optlistTableTf = 'font=' . $this->fontRegular . ' fontsize=10 fillcolor=black wordspacing=0' . ' leading=13';
 
         ### create table ###
         // add cell for every item in $tableContent
         foreach ($tableContent as $key => $value) {
             $row++;
-            $normalFontsize = '10';
 
             ## Add $key cell ##
-            $key = $this->replaceHtml(
-                $key,
-                $fontRegular,
-                $fontBold,
-                $normalFontsize
-            );
-
             // Add new textflow
-            $tf = $p->create_textflow($key, $optlistTableTf);
+            $tf = $this->pdf->add_textflow(0, $key, $optlistTableTf);
             if ($tf == 0) {
-                throw new Exception('Error: ' . $p->get_errmsg());
+                throw new Exception('Error: ' . $this->pdf->get_errmsg());
             }
 
             // Add new table cell which contains the textflow
             $optlistTableCellLeft = 'colwidth=50% margintop=4 marginbottom=4 marginleft=4 marginright=4'
                 . ' fittextflow={verticalalign=top} textflow=' . $tf;
 
-            $tbl = $p->add_table_cell($tbl, $col1, $row, '', $optlistTableCellLeft);
+            $tbl = $this->pdf->add_table_cell($tbl, $col1, $row, '', $optlistTableCellLeft);
             if ($tbl == 0) {
-                throw new Exception('Error: ' . $p->get_errmsg());
+                throw new Exception('Error: ' . $this->pdf->get_errmsg());
             }
 
             ## Add $value cell ##
-            $value = $this->replaceHtml(
-                $value,
-                $fontRegular,
-                $fontBold,
-                $normalFontsize
-            );
-
             // add new textflow
-            $tf = $p->create_textflow($value, $optlistTableTf);
+            $tf = $this->pdf->add_textflow(0, $value, $optlistTableTf);
             if ($tf == 0) {
-                throw new Exception('Error: ' . $p->get_errmsg());
+                throw new Exception('Error: ' . $this->pdf->get_errmsg());
             }
 
             // Add new table cell which contains the textflow
             $optlistTableCellRight = 'colwidth=50% margintop=4 marginbottom=4 marginleft=4 marginright=4'
                 . ' fittextflow={verticalalign=top} textflow=' . $tf;
 
-            $tbl = $p->add_table_cell($tbl, $col2, $row, '', $optlistTableCellRight);
+            $tbl = $this->pdf->add_table_cell($tbl, $col2, $row, '', $optlistTableCellRight);
             if ($tbl == 0) {
-                throw new Exception('Error: ' . $p->get_errmsg());
+                throw new Exception('Error: ' . $this->pdf->get_errmsg());
             }
         }
 
@@ -945,85 +802,48 @@ class ExampleRenderingPdfGenerator
         $optlistTable = 'rowheightdefault=15 '
             . 'stroke={{line=frame linewidth=1} {line=vertother linewidth=1} {line=horother linewidth=1}} ';
 
-        $resultTable = $p->fit_table($tbl, $leftX, $leftY, $rightX, $rightY, $optlistTable);
+        $resultTable = $this->pdf->fit_table($tbl, $left_x, $left_y, $right_x, $right_y, $optlistTable);
 
-        while ($resultTable != '_stop') {
-            $this->generateNewPage(
-                $p,
-                $pagewidth,
-                $pageheight,
-                $y,
-                $pageCount,
-            );
-
-            // Table coordinates for new page
-            $leftX2 = $elementStartLeft;
-            $leftY2 = 100;
-            $rightX2 = $elementEndRight;
-            $rightY2 = 755;
-
-            // Place table on new page
-            $resultTable = $p->fit_table($tbl, $leftX2, $leftY2, $rightX2, $rightY2, $optlistTable);
+        // If the table doesn't fit into the fitbox throw an exception
+        if ($resultTable == '_boxfull') {
+            throw new Exception('Table does not fit into the fitbox');
         }
 
         ## get height value of productProfile table ##
         // Get table height
-        $resultTableY2 = $p->info_table($tbl, 'y2');
+        $resultTableY2 = $this->pdf->info_table($tbl, 'y2');
 
         // Return new height value
-        $y = $resultTableY2 - 30;
+        $this->y = $resultTableY2 - 30;
     }
 
-    private function loadImages(
-        \PDFlib $p,
-        int $elementStartLeft,
-        int $elementEndRight,
-        int $fontBold,
-        int $y,
-        array $arrInput,
-        int $pageheight,
-        int $pagewidth,
-        &$pageCount
-    ) {
-        if ($y < 280) {
-            $this->generateNewPage(
-                $p,
-                $pagewidth,
-                $pageheight,
-                $y,
-                $pageCount,
-            );
-        }
+    private function loadImages() {
+        $imageHeading = $this->data['image']['heading'];
+        $this->createHeading($imageHeading, 75);
 
-        // Variable Declaration
-        $imageHeading = $arrInput['image']['heading'];
-        $imageSource = $arrInput['image']['source'];
-
-
-        $this->createHeading(
-            $p,
-            $y,
-            $elementStartLeft,
-            $elementEndRight,
-            $fontBold,
-            $arrInput,
-            $imageHeading
-        );
+        $imageSource = $this->data['image']['source'];
 
         // start coordinates of the images
-        $imageY = $y - 140;
-        $imageX = $elementStartLeft;
+        $offsetTop = $this->currentPageNo === 1 ? 70 : 100;
+        $imageY = $this->y - $offsetTop;
+        $imageX = $this->elementStartLeft;
 
         // load the image
-        $image = $p->load_image('auto', $imageSource, '');
+        $image = $this->pdf->load_image('auto', $imageSource, '');
         if ($image == 0) {
-            echo('Couldn not load logo image: ' . $p->get_errmsg());
+            echo('Couldn not load logo image: ' . $this->pdf->get_errmsg());
             exit(1);
         }
 
         // place the image on the page
-        $buf = 'scale=0.2 position={left}';
-        $p->fit_image($image, $imageX, $imageY, $buf);
+        $buf = 'scale=0.2 position={left} matchbox={name=image}';
+        $this->pdf->fit_image($image, $imageX, $imageY, $buf);
+
+        if ($this->pdf->info_matchbox("image", 1, "exists") == 1 && $this->currentPageNo > 1) {
+            $y2 = $this->pdf->info_matchbox("image", 1, "y2");
+
+            $this->y = $y2 - 20;
+        }
     }
 }
 
